@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import useLotteryHistory from '../hooks/useLotteryHistory'
 
 const SPEED_OPTIONS = [
   { label: '快速', value: 50 },
@@ -22,6 +23,7 @@ function LotterySystem() {
   
   const animationRef = useRef(null)
   const availableItemsRef = useRef([])
+  const { history, addHistory, clearHistory } = useLotteryHistory()
 
   // 加载数据
   useEffect(() => {
@@ -106,6 +108,7 @@ function LotterySystem() {
         setAvailableCount(availableItemsRef.current.length)
         setCurrentDisplay(null)
         setIsDrawing(false)
+        addHistory(finalResults)
       }
     }
 
@@ -403,6 +406,57 @@ function LotterySystem() {
                     </p>
                   </div>
                 )}
+
+                {/* 历史记录 */}
+                <section className="glass-dark rounded-xl shadow-xl p-4 flex-1 min-h-0 flex flex-col border border-gray-100">
+                  <div className="flex items-center justify-between mb-3 flex-shrink-0">
+                    <div className="flex items-center gap-2">
+                      <div className="w-1 h-5 bg-gradient-to-b from-green-500 to-teal-500 rounded-full"></div>
+                      <h2 className="text-base font-bold text-gray-800">📜 抽签历史</h2>
+                    </div>
+                    {history.length > 0 && (
+                      <button
+                        onClick={clearHistory}
+                        className="px-3 py-1 text-xs rounded-lg font-semibold bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 hover:shadow-md transition-all duration-300 button-active"
+                      >
+                        🗑️ 清空
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex-1 overflow-y-auto pr-1 min-h-0">
+                    {history.length === 0 ? (
+                      <div className="flex items-center justify-center h-full py-6">
+                        <p className="text-xs text-gray-400 font-medium">暂无抽签记录</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {history.map((record) => (
+                          <div
+                            key={record.timestamp}
+                            className="rounded-lg border border-gray-100 shadow-sm overflow-hidden card-hover"
+                          >
+                            <div className="bg-gradient-to-r from-gray-50 to-indigo-50 px-3 py-1.5 flex items-center justify-between">
+                              <span className="text-xs font-semibold text-gray-600">🕐 {record.timeStr}</span>
+                              <span className="text-xs text-gray-400 font-medium">{record.results.length}人</span>
+                            </div>
+                            <div className="px-3 py-2">
+                              <div className="flex flex-wrap gap-1">
+                                {record.results.map((item) => (
+                                  <span
+                                    key={item.id}
+                                    className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-gradient-to-r from-blue-50 to-purple-50 text-blue-700 border border-blue-100"
+                                  >
+                                    {item.number} {item.name}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </section>
               </div>
             </div>
           )}
