@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 
 const SPEED_OPTIONS = [
   { label: '快速', value: 50 },
@@ -7,6 +7,33 @@ const SPEED_OPTIONS = [
 ]
 
 const QUANTITY_OPTIONS = [1, 2, 3, 5, 10]
+const STORAGE_KEY = 'lottery_history'
+
+/**
+ * 从 localStorage 读取历史记录
+ * @returns {Array<{id: string, timestamp: number, results: Array<any>, quantity: number}>} 历史记录数组
+ */
+const getHistoryFromStorage = () => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch (error) {
+    console.error('Failed to load history from storage:', error)
+    return []
+  }
+}
+
+/**
+ * 保存历史记录到 localStorage
+ * @param {Array<{id: string, timestamp: number, results: Array<any>, quantity: number}>} history 历史记录数组
+ */
+const saveHistoryToStorage = (history) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(history))
+  } catch (error) {
+    console.error('Failed to save history to storage:', error)
+  }
+}
 
 function LotterySystem() {
   const [data, setData] = useState([])
@@ -19,13 +46,72 @@ function LotterySystem() {
   const [customSpeed, setCustomSpeed] = useState(150)
   const [useCustomSpeed, setUseCustomSpeed] = useState(false)
   const [availableCount, setAvailableCount] = useState(0)
+  const [history, setHistory] = useState([])
+  const [showHistory, setShowHistory] = useState(false)
   
   const animationRef = useRef(null)
   const availableItemsRef = useRef([])
 
-  // 加载数据
+  // 加载数据和历史记录
   useEffect(() => {
     loadData()
+    setHistory(getHistoryFromStorage().sort((a, b) => b.timestamp - a.timestamp))
+  }, [])
+
+  // 监听 storage 事件，实现多实例同步
+  useEffect(() => {
+    const handleStorageChange = (event) => {
+      if (event.key === STORAGE_KEY) {
+        setHistory(getHistoryFromStorage().sort((a, b) => b.timestamp - a.timestamp))
+      }
+    }
+    window.addEventListener('storage', handleStorageChange)
+    return () => {
+      window.removeEventListener('storage', handleStorageChange)
+    }
+  }, [])
+
+  /**
+   * 保存抽签结果到历史记录
+   * @param {Array<any>} drawResults 抽签结果数组
+   * @param {number} drawQuantity 本次抽选数量
+   */
+  const saveToHistory = useCallback((drawResults, drawQuantity) => {
+    const newRecord = {
+      id: Date.now().toString(),
+      timestamp: Date.now(),
+      results: drawResults,
+      quantity: drawQuantity,
+    }
+    const updatedHistory = [newRecord, ...history].sort((a, b) => b.timestamp - a.timestamp)
+    setHistory(updatedHistory)
+    saveHistoryToStorage(updatedHistory)
+  }, [history])
+
+  /**
+   * 清空历史记录
+   */
+  const clearHistory = useCallback(() => {
+    if (window.confirm('确定要清空所有历史记录吗？此操作不可恢复。')) {
+      setHistory([])
+      saveHistoryToStorage([])
+    }
+  }, [])
+
+  /**
+   * 格式化时间戳
+   * @param {number} timestamp 时间戳
+   * @returns {string} 格式化后的时间字符串
+   */
+  const formatTime = useCallback((timestamp) => {
+    const date = new Date(timestamp)
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const hours = String(date.getHours()).padStart(2, '0')
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+    const seconds = String(date.getSeconds()).padStart(2, '0')
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
   }, [])
 
   const loadData = async () => {
@@ -67,6 +153,7 @@ function LotterySystem() {
     setIsDrawing(true)
     setResults([])
     setCurrentDisplay(null)
+    setShowHistory(false)
 
     const available = [...availableItemsRef.current]
     const targetQuantity = Math.min(quantity, available.length)
@@ -106,6 +193,7 @@ function LotterySystem() {
         setAvailableCount(availableItemsRef.current.length)
         setCurrentDisplay(null)
         setIsDrawing(false)
+        saveToHistory(finalResults, targetQuantity)
       }
     }
 
@@ -189,6 +277,11 @@ function LotterySystem() {
                     <div className="text-center transform transition-transform hover:scale-110">
                       <div className="text-3xl font-extrabold mb-1 drop-shadow-lg">{results.length}</div>
                       <div className="text-xs font-medium opacity-95 tracking-wide">已抽取</div>
+                    </div>
+                    <div className="w-px h-10 bg-white/40 rounded-full"></div>
+                    <div className="text-center transform transition-transform hover:scale-110">
+                      <div className="text-3xl font-extrabold mb-1 drop-shadow-lg">{history.length}</div>
+                      <div className="text-xs font-medium opacity-95 tracking-wide">历史记录</div>
                     </div>
                   </div>
                 </div>
@@ -315,93 +408,172 @@ function LotterySystem() {
                     >
                       🔁 重置
                     </button>
+                    <button
+                      onClick={() => setShowHistory(!showHistory)}
+                      className={`px-6 py-3 rounded-xl font-bold text-sm transition-all duration-300 button-active ${
+                        showHistory
+                          ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-lg shadow-indigo-500/50 scale-105'
+                          : 'bg-white text-gray-700 shadow-lg border-2 border-gray-200 hover:bg-gray-50 hover:shadow-xl hover:scale-105'
+                      }`}
+                    >
+                      📜 {showHistory ? '隐藏历史' : '查看历史'}
+                    </button>
                   </div>
                 </section>
               </div>
 
-              {/* 右侧：抽签动画和结果展示 */}
+              {/* 右侧：抽签动画和结果展示 / 历史记录 */}
               <div className="lg:col-span-1 flex flex-col min-h-0 space-y-3">
-                {/* 抽签动画展示区域 - 美化版 */}
-                {(isDrawing || currentDisplay) ? (
-                  <section className="relative overflow-hidden rounded-xl shadow-2xl p-5 flex-shrink-0 pulse-glow border-2 border-blue-300">
-                    <div className="absolute inset-0 bg-gradient-to-br from-blue-400 via-purple-400 to-orange-400 opacity-20"></div>
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/10 to-transparent"></div>
-                    <div className="relative text-center">
-                      <h3 className="text-base font-bold text-gray-800 mb-4 flex items-center justify-center gap-2">
-                        <span className="animate-spin">🎲</span>
-                        <span>抽签中...</span>
-                      </h3>
-                      {currentDisplay && (
-                        <div className="inline-block glass-dark rounded-xl shadow-2xl p-6 card-hover border-2 border-white/50">
-                          <div className="text-5xl font-extrabold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2 drop-shadow-lg">
-                            {currentDisplay.number}
-                          </div>
-                          <div className="text-xl font-bold text-gray-800">
-                            {currentDisplay.name}
-                          </div>
-                        </div>
+                {showHistory ? (
+                  /* 历史记录展示区域 */
+                  <section className="glass-dark rounded-xl shadow-xl p-4 flex-1 flex flex-col min-h-0 border border-gray-100">
+                    <div className="flex items-center justify-between mb-3 flex-shrink-0">
+                      <div className="flex items-center gap-2">
+                        <div className="w-1 h-5 bg-gradient-to-b from-indigo-500 to-purple-500 rounded-full"></div>
+                        <h2 className="text-base font-bold text-gray-800">
+                          📜 历史记录
+                        </h2>
+                      </div>
+                      {history.length > 0 && (
+                        <button
+                          onClick={clearHistory}
+                          className="px-3 py-1 text-xs rounded-lg font-semibold bg-red-100 text-red-600 hover:bg-red-200 transition-colors duration-300"
+                        >
+                          🗑️ 清空
+                        </button>
                       )}
                     </div>
-                  </section>
-                ) : results.length > 0 ? (
-                  /* 结果展示区域 - 美化版 */
-                  <section className="glass-dark rounded-xl shadow-xl p-4 flex-1 flex flex-col min-h-0 border border-gray-100">
-                    <div className="flex items-center justify-center gap-2 mb-3 flex-shrink-0">
-                      <div className="w-1 h-5 bg-gradient-to-b from-orange-500 to-pink-500 rounded-full"></div>
-                      <h2 className="text-base font-bold text-gray-800">
-                        🎉 抽签结果
-                      </h2>
-                    </div>
-                    <div className="space-y-2.5 flex-1 overflow-y-auto pr-1">
-                      {results.map((item, index) => (
-                        <div
-                          key={item.id}
-                          className="relative overflow-hidden rounded-lg shadow-lg card-hover shine-effect group"
-                        >
-                          <div className="absolute inset-0 bg-gradient-to-r from-blue-600 via-purple-600 to-orange-600 opacity-90"></div>
-                          <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent"></div>
-                          <div className="relative p-3.5 text-white">
-                            <div className="flex items-center justify-between">
-                              <div className="flex-1">
-                                <div className="text-xs font-medium opacity-95 mb-1.5 flex items-center gap-2">
-                                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-white/30 text-xs font-bold">
+                    {history.length > 0 ? (
+                      <div className="space-y-2.5 flex-1 overflow-y-auto pr-1">
+                        {history.map((record, recordIndex) => (
+                          <div
+                            key={record.id}
+                            className="bg-white/50 rounded-lg p-3 border border-gray-200 shadow-sm"
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xs font-bold text-indigo-600">
+                                #{history.length - recordIndex}
+                              </span>
+                              <span className="text-xs text-gray-500">
+                                {formatTime(record.timestamp)}
+                              </span>
+                            </div>
+                            <div className="space-y-1">
+                              {record.results.map((item, index) => (
+                                <div
+                                  key={item.id}
+                                  className="flex items-center gap-2 text-xs"
+                                >
+                                  <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-100 text-gray-600 text-xs font-bold">
                                     {index + 1}
                                   </span>
-                                  <span>第 {index + 1} 名</span>
+                                  <span className="font-bold text-gray-700">
+                                    {item.number}
+                                  </span>
+                                  <span className="text-gray-600">
+                                    {item.name}
+                                  </span>
                                 </div>
-                                <div className="text-2xl font-extrabold mb-1 drop-shadow-lg">
-                                  {item.number}
-                                </div>
-                                <div className="text-sm font-semibold opacity-95">
-                                  {item.name}
-                                </div>
-                              </div>
-                              <div className="ml-3 text-2xl opacity-80 group-hover:scale-110 transition-transform">
-                                {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '🏅'}
-                              </div>
+                              ))}
                             </div>
                           </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex-1 flex items-center justify-center">
+                        <div className="text-center text-gray-500">
+                          <div className="text-3xl mb-2">📭</div>
+                          <p className="text-sm font-medium">暂无历史记录</p>
+                          <p className="text-xs mt-1">抽签后会自动记录在这里</p>
                         </div>
-                      ))}
-                    </div>
+                      </div>
+                    )}
                   </section>
                 ) : (
-                  <div className="glass-dark rounded-xl shadow-xl p-6 flex items-center justify-center flex-1 min-h-0 border border-gray-100">
-                    <div className="text-center">
-                      <div className="text-4xl mb-3 animate-bounce">🎯</div>
-                      <p className="text-sm text-gray-500 font-medium">等待抽签结果...</p>
-                    </div>
-                  </div>
-                )}
+                  <>
+                    {/* 抽签动画展示区域 - 美化版 */}
+                    {(isDrawing || currentDisplay) ? (
+                      <section className="relative overflow-hidden rounded-xl shadow-2xl p-5 flex-shrink-0 pulse-glow border-2 border-blue-300">
+                        <div className="absolute inset-0 bg-gradient-to-br from-blue-400 via-purple-400 to-orange-400 opacity-20"></div>
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/10 to-transparent"></div>
+                        <div className="relative text-center">
+                          <h3 className="text-base font-bold text-gray-800 mb-4 flex items-center justify-center gap-2">
+                            <span className="animate-spin">🎲</span>
+                            <span>抽签中...</span>
+                          </h3>
+                          {currentDisplay && (
+                            <div className="inline-block glass-dark rounded-xl shadow-2xl p-6 card-hover border-2 border-white/50">
+                              <div className="text-5xl font-extrabold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2 drop-shadow-lg">
+                                {currentDisplay.number}
+                              </div>
+                              <div className="text-xl font-bold text-gray-800">
+                                {currentDisplay.name}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </section>
+                    ) : results.length > 0 ? (
+                      /* 结果展示区域 - 美化版 */
+                      <section className="glass-dark rounded-xl shadow-xl p-4 flex-1 flex flex-col min-h-0 border border-gray-100">
+                        <div className="flex items-center justify-center gap-2 mb-3 flex-shrink-0">
+                          <div className="w-1 h-5 bg-gradient-to-b from-orange-500 to-pink-500 rounded-full"></div>
+                          <h2 className="text-base font-bold text-gray-800">
+                            🎉 抽签结果
+                          </h2>
+                        </div>
+                        <div className="space-y-2.5 flex-1 overflow-y-auto pr-1">
+                          {results.map((item, index) => (
+                            <div
+                              key={item.id}
+                              className="relative overflow-hidden rounded-lg shadow-lg card-hover shine-effect group"
+                            >
+                              <div className="absolute inset-0 bg-gradient-to-r from-blue-600 via-purple-600 to-orange-600 opacity-90"></div>
+                              <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent"></div>
+                              <div className="relative p-3.5 text-white">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex-1">
+                                    <div className="text-xs font-medium opacity-95 mb-1.5 flex items-center gap-2">
+                                      <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-white/30 text-xs font-bold">
+                                        {index + 1}
+                                      </span>
+                                      <span>第 {index + 1} 名</span>
+                                    </div>
+                                    <div className="text-2xl font-extrabold mb-1 drop-shadow-lg">
+                                      {item.number}
+                                    </div>
+                                    <div className="text-sm font-semibold opacity-95">
+                                      {item.name}
+                                    </div>
+                                  </div>
+                                  <div className="ml-3 text-2xl opacity-80 group-hover:scale-110 transition-transform">
+                                    {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '🏅'}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+                    ) : (
+                      <div className="glass-dark rounded-xl shadow-xl p-6 flex items-center justify-center flex-1 min-h-0 border border-gray-100">
+                        <div className="text-center">
+                          <div className="text-4xl mb-3 animate-bounce">🎯</div>
+                          <p className="text-sm text-gray-500 font-medium">等待抽签结果...</p>
+                        </div>
+                      </div>
+                    )}
 
-                {/* 提示信息 */}
-                {availableCount === 0 && results.length > 0 && (
-                  <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border-l-4 border-orange-400 p-3 rounded-lg flex-shrink-0 shadow-md">
-                    <p className="text-xs text-orange-800 font-medium flex items-center gap-2">
-                      <span className="text-base">💡</span>
-                      <span><strong>提示：</strong>所有候选项已被抽完，点击"重置"重新开始。</span>
-                    </p>
-                  </div>
+                    {/* 提示信息 */}
+                    {availableCount === 0 && results.length > 0 && (
+                      <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border-l-4 border-orange-400 p-3 rounded-lg flex-shrink-0 shadow-md">
+                        <p className="text-xs text-orange-800 font-medium flex items-center gap-2">
+                          <span className="text-base">💡</span>
+                          <span><strong>提示：</strong>所有候选项已被抽完，点击"重置"重新开始。</span>
+                        </p>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
